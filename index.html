@@ -1,0 +1,581 @@
+<!DOCTYPE html>
+<html lang="en">
+<head>
+    <meta charset="UTF-8">
+    <meta name="viewport" content="width=device-width, initial-scale=1.0">
+    <title>Curriculum Knowledge Graph Viewer</title>
+    <script src="https://cdn.tailwindcss.com"></script>
+    <!-- Load D3.js library for graph visualization -->
+    <script src="https://cdnjs.cloudflare.com/ajax/libs/d3/7.8.5/d3.min.js"></script>
+    <style>
+        /* Ensure the SVG container is visible and styled */
+        #graph-container {
+            width: 100%;
+            height: 600px;
+            background-color: #f9fafb;
+            border-radius: 0.75rem; /* rounded-xl */
+            box-shadow: 0 4px 6px -1px rgba(0, 0, 0, 0.1), 0 2px 4px -2px rgba(0, 0, 0, 0.1); /* shadow-lg */
+            margin-top: 1rem;
+        }
+        .node-label {
+            pointer-events: none; /* Allows clicks to pass through to the node */
+        }
+        .input-group label {
+            font-weight: 600;
+            margin-right: 0.5rem;
+            color: #4B5563;
+        }
+        .input-group input {
+            padding: 0.5rem;
+            border: 1px solid #D1D5DB;
+            border-radius: 0.375rem;
+            width: 100%;
+        }
+        .analysis-card {
+            min-height: 150px;
+            position: relative;
+        }
+        .loading-overlay {
+            position: absolute;
+            top: 0;
+            left: 0;
+            right: 0;
+            bottom: 0;
+            background: rgba(255, 255, 255, 0.9);
+            display: flex;
+            justify-content: center;
+            align-items: center;
+            z-index: 10;
+            border-radius: 0.75rem;
+        }
+        /* Custom styles for the generated, readable analysis content */
+        .readable-output h5 {
+            font-weight: 700;
+            margin-top: 1rem;
+            margin-bottom: 0.5rem;
+            color: #1F2937;
+            font-size: 1.125rem;
+        }
+        .readable-output ul, .readable-output ol {
+            margin-left: 1.5rem;
+            margin-bottom: 1rem;
+            list-style-type: disc;
+        }
+        .readable-output ol {
+            list-style-type: decimal;
+        }
+        .readable-output p {
+            margin-bottom: 0.75rem;
+        }
+        .readable-output .summary {
+            font-style: italic;
+            color: #4B5563;
+            border-left: 3px solid #6366f1;
+            padding-left: 0.75rem;
+            margin-bottom: 1rem;
+        }
+    </style>
+</head>
+<body class="bg-gray-100 p-8 min-h-screen font-sans">
+
+    <div class="max-w-4xl mx-auto">
+        <div class="p-6 bg-white rounded-xl shadow-2xl border border-gray-200">
+            <h1 class="text-3xl font-extrabold text-gray-900 mb-2">
+                Curriculum Knowledge Graph Viewer
+            </h1>
+            <p class="text-lg text-gray-600 mb-4">Visualize the relationship between Degrees, Modules, and Skills.</p>
+
+            <!-- Configuration Inputs -->
+            <div class="flex flex-col sm:flex-row space-y-3 sm:space-y-0 sm:space-x-4 mb-6 p-4 bg-gray-50 rounded-lg border">
+                <div class="input-group flex-1">
+                    <label for="api-url-input" class="block text-sm">API Base URL:</label>
+                    <input type="text" id="api-url-input" value="http://127.0.0.1:8000" placeholder="e.g., https://your-backend.render.com">
+                </div>
+                <div class="input-group w-32">
+                    <label for="degree-id-input" class="block text-sm">Degree ID:</label>
+                    <input type="number" id="degree-id-input" value="1" min="1">
+                </div>
+                <button id="load-graph-button" class="mt-5 sm:mt-0 px-4 py-2 bg-blue-600 text-white font-semibold rounded-lg hover:bg-blue-700 transition duration-150">
+                    Load Graph
+                </button>
+            </div>
+            
+            <p id="degree-title" class="text-lg font-semibold text-gray-700 mb-4">Current Graph: Degree ID 1</p>
+
+            <div id="loading-indicator" class="flex justify-center items-center h-[500px] text-gray-500 hidden">
+                <svg class="animate-spin h-6 w-6 text-blue-500 mr-3" xmlns="http://www.w3.org/2000/svg" fill="none" viewBox="0 0 24 24">
+                    <circle class="opacity-25" cx="12" cy="12" r="10" stroke="currentColor" stroke-width="4"></circle>
+                    <path class="opacity-75" fill="currentColor" d="M4 12a8 8 0 018-8V0C5.373 0 0 5.373 0 12h4zm2 5.291A7.962 7.962 0 014 12H0c0 3.042 1.135 5.824 3 7.938l3-2.647z"></path>
+                </svg>
+                Fetching graph data...
+            </div>
+
+            <div id="graph-container">
+                <!-- D3.js SVG will be appended here -->
+            </div>
+            
+            <div id="error-message" class="hidden text-center p-4 text-red-600 bg-red-100 rounded mt-4">
+                Failed to load graph data. Please ensure the API is running and the URL/ID are correct.
+            </div>
+
+            <!-- Analysis Features - Consolidated Section, Individual Calls -->
+            <div id="analysis-features" class="mt-8 pt-4 border-t border-gray-200 hidden">
+                <h2 class="text-2xl font-bold text-gray-800 mb-6">Skill & Career Analysis Features (FastAPI Endpoints)</h2>
+                
+                <div id="main-analysis-section" class="p-5 bg-gray-50 rounded-xl border border-gray-200">
+                    <p class="text-gray-600 mb-4 italic">
+                        Click below to fetch tailored, real-time insights from your FastAPI backend's specific endpoints. 
+                        Results are formatted for easy, user-friendly reading.
+                    </p>
+
+                    <div class="grid grid-cols-3 gap-4 mb-6">
+                        <!-- Button 1: Calls strongest-skills endpoint -->
+                        <button id="analyze-skills-fastapi-button" class="px-4 py-2 bg-purple-600 text-white font-semibold rounded-lg hover:bg-purple-700 transition duration-150 disabled:opacity-50" 
+                                data-endpoint="strongest-skills" data-target="analysis-skills-output" disabled>
+                            Analyze: Core Strengths
+                        </button>
+                        <!-- Button 2: Calls enhancement-courses endpoint -->
+                        <button id="find-courses-fastapi-button" class="px-4 py-2 bg-yellow-600 text-white font-semibold rounded-lg hover:bg-yellow-700 transition duration-150 disabled:opacity-50" 
+                                data-endpoint="enhancement-courses" data-target="analysis-courses-output" disabled>
+                            Analyze: Enhancement Courses
+                        </button>
+                        <!-- Button 3: Calls complementary-skills endpoint -->
+                        <button id="future-proof-fastapi-button" class="px-4 py-2 bg-green-600 text-white font-semibold rounded-lg hover:bg-green-700 transition duration-150 disabled:opacity-50" 
+                                data-endpoint="complementary-skills" data-target="analysis-future-output" disabled>
+                            Analyze: Future Skill Alignment
+                        </button>
+                    </div>
+
+                    <!-- Analysis Results Display -->
+                    <div class="grid md:grid-cols-3 gap-6">
+                        <div id="analysis-skills-output" class="analysis-card p-4 bg-white rounded-xl shadow-md border border-purple-300">
+                            <h4 class="text-lg font-semibold text-purple-600 mb-2">Core Strengths Output</h4>
+                            <p class="text-gray-500 italic">Click the Core Strengths button to load this analysis.</p>
+                        </div>
+                        
+                        <div id="analysis-courses-output" class="analysis-card p-4 bg-white rounded-xl shadow-md border border-yellow-300">
+                            <h4 class="text-lg font-semibold text-yellow-600 mb-2">Enhancement Courses Output</h4>
+                            <p class="text-gray-500 italic">Click the Enhancement Courses button to load this analysis.</p>
+                        </div>
+
+                        <div id="analysis-future-output" class="analysis-card p-4 bg-white rounded-xl shadow-md border border-green-300">
+                            <h4 class="text-lg font-semibold text-green-600 mb-2">Future Skill Alignment Output</h4>
+                            <p class="text-gray-500 italic">Click the Future Skill Alignment button to load this analysis.</p>
+                        </div>
+                    </div>
+                </div>
+            </div>
+            <!-- End Analysis Features -->
+        </div>
+    </div>
+
+    <script type="module">
+        // Global variables for configuration
+        const API_KEY = ""; 
+        let currentDegreeId; 
+        let currentApiBaseUrl;
+        let cachedGraphData = null; 
+
+        // Configuration maps for D3 visualization
+        const NODE_COLOR_MAP = {
+            'Degree': '#2563EB',   // Blue
+            'Module': '#FBBF24',   // Yellow
+            'Skill': '#10B981'     // Green
+        };
+
+        const NODE_SIZE_MAP = {
+            'Degree': 8,
+            'Module': 5,
+            'Skill': 3
+        };
+
+        // D3 Graph variables
+        let svg, width, height, simulation, g;
+        let isGraphLoaded = false;
+
+        // --- Utility Functions ---
+
+        /**
+         * Converts a structured JSON object into a readable HTML format.
+         * It specifically targets the expected structure from the FastAPI endpoints:
+         * e.g., { "summary": "...", "skills": ["...", "..."], "jobs": ["...", "..."] }
+         * @param {object} jsonObject - The parsed JSON data.
+         * @returns {string} - HTML content ready for insertion.
+         */
+        function formatJsonToHtml(jsonObject) {
+            let html = '<div class="readable-output">';
+
+            // 1. Handle Summary
+            if (jsonObject.summary) {
+                html += `<p class="summary">${jsonObject.summary}</p>`;
+                delete jsonObject.summary; // Remove from keys to process
+            }
+            if (jsonObject.alignment_summary) {
+                html += `<p class="summary">${jsonObject.alignment_summary}</p>`;
+                delete jsonObject.alignment_summary; // Remove from keys to process
+            }
+
+
+            // 2. Handle remaining keys (Skills, Jobs, Courses, etc.)
+            const keys = Object.keys(jsonObject).filter(key => key.toLowerCase() !== 'source_data');
+
+            for (const key of keys) {
+                const value = jsonObject[key];
+                
+                // Format the key for display (e.g., 'strongest_skills' -> 'Strongest Skills')
+                const displayKey = key.split('_').map(word => word.charAt(0).toUpperCase() + word.slice(1)).join(' ');
+                
+                html += `<h5>${displayKey}</h5>`;
+
+                if (Array.isArray(value)) {
+                    // It's a list (most common case for skills/courses/jobs)
+                    if (key.toLowerCase().includes('job')) {
+                        // Use unordered list for suggestions
+                        html += '<ul>';
+                        value.forEach(item => {
+                            html += `<li>${item}</li>`;
+                        });
+                        html += '</ul>';
+                    } else {
+                        // Use ordered list for rankings/steps
+                        html += '<ol>';
+                        value.forEach(item => {
+                            html += `<li>${item}</li>`;
+                        });
+                        html += '</ol>';
+                    }
+                } else if (typeof value === 'object' && value !== null) {
+                    // It's a nested object (e.g., skill details)
+                    html += '<ul>';
+                    for (const subKey in value) {
+                        const subDisplayKey = subKey.charAt(0).toUpperCase() + subKey.slice(1);
+                        html += `<li><strong>${subDisplayKey}:</strong> ${Array.isArray(value[subKey]) ? value[subKey].join(', ') : value[subKey]}</li>`;
+                    }
+                    html += '</ul>';
+                } else {
+                    // It's a simple key-value pair
+                    html += `<p>${value}</p>`;
+                }
+            }
+
+            html += '</div>';
+            return html;
+        }
+
+
+        function initializeGraphEnvironment() {
+            // Clear previous graph and SVG
+            d3.select("#graph-container").select("svg").remove();
+            isGraphLoaded = false;
+            cachedGraphData = null;
+            
+            // Reset state
+            document.getElementById('analysis-features').classList.add('hidden');
+            document.getElementById('error-message').classList.add('hidden');
+
+            // Reset analysis outputs
+            document.getElementById('analysis-skills-output').querySelector('.analysis-card > :nth-child(2)').innerHTML = '<p class="text-gray-500 italic">Click the Core Strengths button to load this analysis.</p>';
+            document.getElementById('analysis-courses-output').querySelector('.analysis-card > :nth-child(2)').innerHTML = '<p class="text-gray-500 italic">Click the Enhancement Courses button to load this analysis.</p>';
+            document.getElementById('analysis-future-output').querySelector('.analysis-card > :nth-child(2)').innerHTML = '<p class="text-gray-500 italic">Click the Future Skill Alignment button to load this analysis.</p>';
+            
+            // Disable all analysis buttons
+            document.querySelectorAll('#main-analysis-section button').forEach(btn => btn.disabled = true);
+
+
+            // Set up SVG dimensions based on container
+            const container = document.getElementById('graph-container');
+            width = container.clientWidth;
+            height = container.clientHeight;
+
+            svg = d3.select("#graph-container")
+                .append("svg")
+                .attr("width", width)
+                .attr("height", height);
+
+            // D3 Zoom Behavior Implementation
+            const zoom = d3.zoom()
+                .scaleExtent([0.2, 10]) 
+                .on("zoom", (event) => {
+                    g.attr("transform", event.transform);
+                });
+
+            svg.call(zoom);
+            g = svg.append("g"); 
+        }
+
+        document.addEventListener('DOMContentLoaded', () => {
+            // Initial read of configuration values
+            currentApiBaseUrl = document.getElementById('api-url-input').value.trim().replace(/\/$/, ""); 
+            currentDegreeId = parseInt(document.getElementById('degree-id-input').value);
+
+            document.getElementById('degree-title').textContent = `Current Graph: Degree ID ${currentDegreeId}`;
+            
+            initializeGraphEnvironment(); 
+            
+            // Event listener for the main "Load Graph" button
+            document.getElementById('load-graph-button').addEventListener('click', () => {
+                currentApiBaseUrl = document.getElementById('api-url-input').value.trim().replace(/\/$/, "");
+                currentDegreeId = parseInt(document.getElementById('degree-id-input').value);
+                
+                document.getElementById('degree-title').textContent = `Current Graph: Degree ID ${currentDegreeId}`;
+                document.getElementById('loading-indicator').classList.remove('hidden');
+                document.getElementById('error-message').classList.add('hidden');
+                
+                initializeGraphEnvironment();
+                fetchDataAndDrawGraph();
+            });
+
+            // Event listeners for the three main analysis buttons
+            const analysisButtons = document.querySelectorAll('#main-analysis-section button');
+            analysisButtons.forEach(button => {
+                button.addEventListener('click', () => {
+                    if (isGraphLoaded) {
+                        const endpoint = button.getAttribute('data-endpoint');
+                        const targetId = button.getAttribute('data-target');
+                        fetchSpecificAnalysis(endpoint, targetId);
+                    } else {
+                        document.getElementById('error-message').textContent = 'Please load the graph data first.';
+                        document.getElementById('error-message').classList.remove('hidden');
+                    }
+                });
+            });
+        });
+
+        // --- 1. Graph Loading Logic ---
+
+        async function fetchDataAndDrawGraph() {
+            const apiUrl = `${currentApiBaseUrl}/api/degrees/${currentDegreeId}/graph`;
+            
+            try {
+                const response = await fetch(apiUrl);
+                
+                if (!response.ok) {
+                    const errorText = await response.text();
+                    let errorMessage = `HTTP Error: ${response.status} ${response.statusText}`;
+                    try {
+                        const errorData = JSON.parse(errorText);
+                        errorMessage = errorData.detail || errorData.error || errorMessage;
+                    } catch {
+                        errorMessage += ` - Detail: ${errorText.substring(0, 100)}...`;
+                    }
+                    throw new Error(errorMessage);
+                }
+
+                const data = await response.json();
+
+                if (!data.nodes || data.nodes.length === 0) {
+                    throw new Error("No graph data returned. The degree might not exist or has no modules/skills.");
+                }
+
+                drawGraph(data);
+                isGraphLoaded = true;
+                cachedGraphData = JSON.stringify(data, null, 2); // Cache the data
+
+                // Enable analysis sections and buttons
+                document.getElementById('analysis-features').classList.remove('hidden');
+                document.querySelectorAll('#main-analysis-section button').forEach(btn => btn.disabled = false);
+                
+                document.getElementById('loading-indicator').classList.add('hidden');
+
+            } catch (error) {
+                console.error("Graph Fetch Error:", error);
+                document.getElementById('loading-indicator').classList.add('hidden');
+                document.getElementById('error-message').classList.remove('hidden');
+
+                let displayMessage = `Error: ${error.message}.`;
+                
+                if (error instanceof TypeError && error.message === 'Failed to fetch') {
+                    displayMessage = `Connection Error: Failed to fetch from ${currentApiBaseUrl}. Please ensure your FastAPI backend is running with CORS enabled.`;
+                }
+
+                document.getElementById('error-message').textContent = displayMessage;
+            }
+        }
+        
+        function createLoadingOverlay(message = 'Calling API endpoint...') {
+            const loadingOverlay = document.createElement('div');
+            loadingOverlay.className = 'loading-overlay';
+            loadingOverlay.innerHTML = `
+                <svg class="animate-spin h-6 w-6 text-blue-500 mr-3" xmlns="http://www.w3.org/2000/svg" fill="none" viewBox="0 0 24 24">
+                    <circle class="opacity-25" cx="12" cy="12" r="10" stroke="currentColor" stroke-width="4"></circle>
+                    <path class="opacity-75" fill="currentColor" d="M4 12a8 8 0 018-8V0C5.373 0 0 5.373 0 12h4zm2 5.291A7.962 7.962 0 014 12H0c0 3.042 1.135 5.824 3 7.938l3-2.647z"></path>
+                </svg>
+                ${message}
+            `;
+            return loadingOverlay;
+        }
+        
+        // --- Analysis Logic (fetches from individual endpoint and formats) ---
+
+        async function fetchSpecificAnalysis(endpoint, targetId) {
+            const apiUrl = `${currentApiBaseUrl}/api/degrees/${currentDegreeId}/${endpoint}`;
+            const targetElement = document.getElementById(targetId);
+            const button = document.querySelector(`button[data-endpoint="${endpoint}"]`);
+            
+            // Store the header element to re-append later
+            const headerElement = targetElement.querySelector('h4').cloneNode(true);
+            
+            button.disabled = true;
+            const loadingOverlay = createLoadingOverlay('Calling FastAPI endpoint...');
+            targetElement.innerHTML = ''; // Clear content for loading overlay
+            targetElement.appendChild(headerElement);
+            targetElement.appendChild(loadingOverlay);
+
+            try {
+                const response = await fetch(apiUrl);
+                
+                if (!response.ok) {
+                    const errorText = await response.text();
+                    let errorMessage = `HTTP Error: ${response.status} ${response.statusText}`;
+                    try {
+                        const errorData = JSON.parse(errorText);
+                        errorMessage = errorData.detail || errorData.error || errorMessage;
+                    } catch {
+                        errorMessage += ` - Detail: ${errorText.substring(0, 100)}...`;
+                    }
+                    throw new Error(errorMessage);
+                }
+
+                // Get the raw result text
+                const resultBody = await response.text(); 
+                
+                // Clear content but keep the header
+                targetElement.innerHTML = ''; 
+                targetElement.appendChild(headerElement);
+                
+                let contentHTML = '';
+
+                // Attempt to parse as JSON for readable formatting
+                try {
+                    const jsonObject = JSON.parse(resultBody);
+                    contentHTML = formatJsonToHtml(jsonObject); // Use the new formatting function
+                } catch (e) {
+                    // Not structured JSON, treat as raw text/markdown. 
+                    // Simple text is wrapped in a readable container.
+                    contentHTML = `<div class="readable-output p-4 text-gray-700">${resultBody}</div>`;
+                }
+                
+                targetElement.innerHTML += contentHTML;
+                
+
+            } catch (error) {
+                console.error(`FastAPI Analysis Fetch Error (${endpoint}):`, error);
+                
+                // Display error message in the card
+                targetElement.innerHTML = ''; 
+                targetElement.appendChild(headerElement);
+                targetElement.innerHTML += `<p class="text-red-500 p-4">Failed to load analysis: ${error.message}. Check your FastAPI server logs and CORS configuration.</p>`;
+            } finally {
+                button.disabled = false;
+                // The loading overlay should already be removed or replaced by the final content
+            }
+        }
+
+
+        // --- D3 Graph Drawing Logic ---
+
+        function drawGraph(graph) {
+            
+            // 1. Setup Simulation (Physics engine)
+            simulation = d3.forceSimulation(graph.nodes)
+                .force("link", d3.forceLink(graph.links).id(d => d.id).distance(60)) 
+                .force("charge", d3.forceManyBody().strength(-400)) 
+                .force("center", d3.forceCenter(width / 2, height / 2))
+                .force("collide", d3.forceCollide().radius(15)); 
+
+            // 2. Draw Links (Edges)
+            const link = g.append("g") 
+                .attr("class", "links")
+                .selectAll("line")
+                .data(graph.links)
+                .enter().append("line")
+                .attr("stroke-width", 1.5)
+                .attr("stroke", d => d.group === 'degree-module' ? '#9CA3AF' : '#10B981')
+                .attr("marker-end", "url(#arrowhead)"); 
+
+            // Define Arrowhead Marker (must be on the main SVG)
+            svg.append("defs").selectAll("marker")
+                .data(["end"]) 
+                .enter().append("marker")
+                .attr("id", "arrowhead")
+                .attr("viewBox", "0 -5 10 10")
+                .attr("refX", 20) 
+                .attr("refY", 0)
+                .attr("marker-width", 6)
+                .attr("marker-height", 6)
+                .attr("orient", "auto")
+                .append("path")
+                .attr("d", "M0,-5L10,0L0,5")
+                .attr("fill", "#10B981");
+
+
+            // 3. Draw Nodes and drag behavior
+            const node = g.append("g") 
+                .attr("class", "nodes")
+                .selectAll("g")
+                .data(graph.nodes)
+                .enter().append("g")
+                .attr("cursor", "grab")
+                .call(drag(simulation));
+
+            // Append Circles to Nodes
+            node.append("circle")
+                .attr("r", d => NODE_SIZE_MAP[d.group] * 2)
+                .attr("fill", d => NODE_COLOR_MAP[d.group])
+                .attr("stroke", "#374151")
+                .attr("stroke-width", 1.5)
+                .style("cursor", "pointer"); 
+            
+            // Add tooltips on hover
+            node.append("title")
+                .text(d => d.label + " (" + d.group + ")");
+
+            // Add Labels (Text) to Nodes
+            node.append("text")
+                .attr("class", "node-label")
+                .attr("dy", d => NODE_SIZE_MAP[d.group] * 2 + 10) 
+                .attr("text-anchor", "middle")
+                .attr("font-size", "10px")
+                .attr("fill", "#1F2937")
+                .style("font-weight", d => d.group === 'Degree' ? 'bold' : 'normal')
+                .text(d => d.label);
+
+            // 4. Update simulation on each tick
+            simulation.on("tick", () => {
+                link
+                    .attr("x1", d => d.source.x)
+                    .attr("y1", d => d.source.y)
+                    .attr("x2", d => d.target.x)
+                    .attr("y2", d => d.target.y);
+
+                node
+                    .attr("transform", d => `translate(${d.x},${d.y})`);
+            });
+            
+            function drag(simulation) {
+                function dragstarted(event, d) {
+                    if (!event.active) simulation.alphaTarget(0.3).restart();
+                    d.fx = event.x; 
+                    d.fy = event.y;
+                }
+
+                function dragged(event, d) {
+                    d.fx = event.x;
+                    d.fy = event.y;
+                }
+
+                function dragended(event, d) {
+                    if (!event.active) simulation.alphaTarget(0);
+                    d.fx = null;
+                    d.fy = null;
+                }
+
+                return d3.drag()
+                    .on("start", dragstarted)
+                    .on("drag", dragged)
+                    .on("end", dragended);
+            }
+        }
+    </script>
+</body>
+</html>
